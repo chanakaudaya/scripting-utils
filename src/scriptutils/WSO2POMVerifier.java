@@ -23,6 +23,15 @@ public class WSO2POMVerifier {
         return matchingList;
     }
     
+    public static final List<String> findMatch(String str,Pattern p,int group){
+    	List<String> matchingList = new ArrayList<String>();
+        Matcher matcher = p.matcher(str);
+        while(matcher.find()){
+        	matchingList.add(matcher.group(group));
+        }
+        return matchingList;
+    }
+    
     static Pattern noDepndancyTagsPattern  = Pattern.compile("(?s)<dependency>.*?<version>.*?</version>.*?</dependency>");
     static Pattern noSnapShotInDependancyPattern  = Pattern.compile("(?s)<dependency>.*?<version>.*?SNAPSHOT.*?</version>.*?</dependency>");
     
@@ -33,7 +42,17 @@ public class WSO2POMVerifier {
     
     static Pattern noSnapShotInImportPackagePattern = Pattern.compile("(?s)<Import-Package>.*?SNAPSHOT.*?</Import-Package>");
     
+    static Pattern PropertyDefinitionsPattern = Pattern.compile("(?s)<properties>(.*?)</properties>");
+    static Pattern APropertyDefinitionPattern = Pattern.compile("(?s)<(.*?)>.*?</.*?>");
+    
+    static Pattern propertyUseReferencePattern = Pattern.compile("\\$\\{(.*?)\\}");
+    
+    
+                            
+    
     static HashSet<String> removedGroupIds = new HashSet<String>();
+    
+    static HashSet<String> commonPomProperties = new HashSet<String>();
     
     static{
     	//removedGroupIds.add("org.wso2.carbon");
@@ -59,6 +78,17 @@ public class WSO2POMVerifier {
 
 		removedGroupIds.add("org.wso2.siddhi");
 		removedGroupIds.add("org.wso2.cep");
+		
+		commonPomProperties.add("project.artifactId");
+		commonPomProperties.add("settings.localRepository");
+		commonPomProperties.add("wso2carbon.version");
+		commonPomProperties.add("project.version");
+		commonPomProperties.add("carbon.version");
+		commonPomProperties.add("carbon.platform.version");
+		commonPomProperties.add("tempdir");
+		commonPomProperties.add("buildNumber");
+		commonPomProperties.add("basedir");
+		
     }    
     
     static String[] notAllowedProperties = { "wso2carbon.version", "project.version" , "carbon.version" , "carbon.platform.version" }; 
@@ -95,11 +125,13 @@ public class WSO2POMVerifier {
     	wranningsList.put("noSnapShotInImportExportPackagePattern", new ArrayList<POMWarnBean>());
     	wranningsList.put("removedGroupIDFound", new ArrayList<POMWarnBean>());
     	wranningsList.put("NotAllowedPropertyFound", new ArrayList<POMWarnBean>());
+    	wranningsList.put("undefinedPropertyUsed", new ArrayList<POMWarnBean>());
+    	
     }
     
     
     
-    public static void checkPOM(String path, String contentAsStr){
+    public static void checkPOM(String path, String contentAsStr, List<String> propertySetInRootPom){
     	// 
     	List<String> matches; 
 //    	matches = findMatch(contentAsStr, noDepndancyTagsPattern);
@@ -139,7 +171,21 @@ public class WSO2POMVerifier {
         		wranningsList.get("NotAllowedPropertyFound").add(new POMWarnBean(2, "NotAllowedPropertyFound", property, path, null));
         	}
     	}
-
+    	
+    	
+    	for(String property: notAllowedProperties){
+        	if(contentAsStr.contains(property)){
+        		wranningsList.get("NotAllowedPropertyFound").add(new POMWarnBean(2, "NotAllowedPropertyFound", property, path, null));
+        	}
+    	}
+    	
+    	List<String> propertiesUsed = findMatch(contentAsStr, propertyUseReferencePattern, 1);
+		for(String propertyName: propertiesUsed){
+		
+			if(!commonPomProperties.contains(propertyName) && !propertySetInRootPom.contains(propertyName)){
+				wranningsList.get("undefinedPropertyUsed").add(new POMWarnBean(2, "undefinedPropertyUsed", propertyName, path, null));	
+			}
+		}
     }
 
     public static void findAllPOMs(File dir, List<File> pomFiles){
@@ -168,6 +214,8 @@ public class WSO2POMVerifier {
     		return "Check and make sure you have incorporate the group ID changes. Most has changed as given in https://docs.google.com/a/wso2.com/spreadsheets/d/1C0yy1Kj0d_ZAbmQuTJ1Y8udSeKVq8zCDalLXYwSrvbg/edit#gid=0";
     	} else if(code.equals("NotAllowedPropertyFound")){
     		return "wso2carbon.version, project.version, carbon.version, carbon.platform.version should not be used. Instead, you should define a property at the parent pom of the repo and used for all sub modules ";
+    	} else if(code.equals("undefinedPropertyUsed")){
+    		return "Each used property must be defined inside the root pom of the repository";
     	}else{
     		return null;
     	}
@@ -181,8 +229,17 @@ public class WSO2POMVerifier {
     	List<File> pomFiles = new ArrayList<File>();
     	findAllPOMs(dir, pomFiles);
     	
+    	String rootPomAsStr = Utils.readFile(args[0]+"/pom.xml"); 
+    	
+    	List<String> propertyDefsInRootPom = findMatch(rootPomAsStr, PropertyDefinitionsPattern, 1); 
+    	
+    	List<String> propertySetInRootPom = null; 
+    	for(String propertiesDef: propertyDefsInRootPom){
+    		propertySetInRootPom = findMatch(propertiesDef.replaceAll("<!--.*?-->", ""), APropertyDefinitionPattern, 1); 
+    	}
+    	
     	for(File file: pomFiles){
-    		checkPOM(file.getAbsolutePath().replace(dir.getAbsolutePath(), ""), Utils.readFile(file.getAbsolutePath()));
+    		checkPOM(file.getAbsolutePath().replace(dir.getAbsolutePath(), ""), Utils.readFile(file.getAbsolutePath()), propertySetInRootPom);
     		
     	}
     	
