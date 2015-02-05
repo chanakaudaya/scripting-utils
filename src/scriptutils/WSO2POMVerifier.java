@@ -54,12 +54,14 @@ public class WSO2POMVerifier {
     
     static HashSet<String> commonPomProperties = new HashSet<String>();
     
+    static HashSet<String> removedGroupIdsWithinOrgWSO2Carbon = new HashSet<String>();
+    
     static{
     	//removedGroupIds.add("org.wso2.carbon");
         removedGroupIds.add("org.wso2.appserver");
         removedGroupIds.add("oc_jag");
 		removedGroupIds.add("org.wso2.amber");
-		removedGroupIds.add("org.wso2.charon");
+		//removedGroupIds.add("org.wso2.charon");
 		removedGroupIds.add("org.wso2.identity");
 		removedGroupIds.add("org.wso2.dss.connectors.mongodb");
 		removedGroupIds.add("org.wso2.governance");
@@ -78,6 +80,20 @@ public class WSO2POMVerifier {
 
 		removedGroupIds.add("org.wso2.siddhi");
 		removedGroupIds.add("org.wso2.cep");
+		
+		
+		try {
+			String strAsUrl = Utils.readFile("oldArtifactNames.txt");
+			String[] tokens = strAsUrl.split("\\s+");
+			for(String token: tokens){
+				if(token.length() > 0){
+					removedGroupIdsWithinOrgWSO2Carbon.add("org.wso2.carbon:"+token);	
+				}
+			}
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
 		
 		commonPomProperties.add("project.artifactId");
 		commonPomProperties.add("settings.localRepository");
@@ -180,12 +196,24 @@ public class WSO2POMVerifier {
     	}
     	
     	List<String> propertiesUsed = findMatch(contentAsStr, propertyUseReferencePattern, 1);
+    	
+    	List<String> propertyDefsThisPom = findMatch(contentAsStr, PropertyDefinitionsPattern, 1); 
+
+    	
 		for(String propertyName: propertiesUsed){
 		
-			if(!commonPomProperties.contains(propertyName) && !propertySetInRootPom.contains(propertyName)){
+			if(!commonPomProperties.contains(propertyName) && !propertySetInRootPom.contains(propertyName)
+					&& !propertyDefsThisPom.contains(propertyName)){
 				wranningsList.get("undefinedPropertyUsed").add(new POMWarnBean(2, "undefinedPropertyUsed", propertyName, path, null));	
 			}
 		}
+		
+		for(String propertyName: removedGroupIdsWithinOrgWSO2Carbon){
+			if(contentAsStr.contains(propertyName)){
+        		wranningsList.get("removedGroupIDFound").add(new POMWarnBean(2, "removedGroupIDFound", propertyName, path, null));
+        	}
+		}
+		
     }
 
     public static void findAllPOMs(File dir, List<File> pomFiles){
